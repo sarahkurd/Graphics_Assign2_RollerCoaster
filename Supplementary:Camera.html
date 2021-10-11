@@ -1,0 +1,56 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN" "http://www.w3.org/TR/REC-html40/loose.dtd">
+<html>
+  <head>
+    <title>CSCI 420 Programming Assignment 2: Simulating a Roller Coaster via Splines - Camera Control Method</title>
+  </head>
+  
+  <body bgcolor="#FFFFFF" link="#0000FF" vlink="#AA00AA" alink="#FF0000">
+
+<!--    <h1><img SRC="../../web.all/images/462-banner.gif"></h1> -->
+
+    <h1>CSCI 420 Programming Assignment 2: Camera Movement</h1>
+
+	<h2>Overview</h2>
+		<p>
+		If you don't properly keep track of your coordinate system as you move from one position 
+		to the next along your spline, then your up vector may end up pointing in a random direction 
+		each time, causing your camera to rotate very unpredictably.  Below is a summary of a method 
+		by Ken Sloan which you might use to move your up vector in a manner which doesn't nauseate the 
+		viewer!
+		</p><P>
+		</p>
+	<h2>Coordinate Transitions</h2>
+		<p>
+		Sloan's method decides each coordinate system using a function of the previous one, to 
+		ensure continuity.  There are three vectors that we care about for each position P along 
+		the length of the spline--these are the tangent, the normal, and the binormal (often called
+		T, N, and B, or collectively the Frenet Frame).  
+		The tangent is already known at each position--it can be acquired from the derivative of your 
+		spline function.  The vectors which must be decided by this method are N and B.
+ 		</p>
+		<p>
+		First, you'll need to generate your starting set of axes at point P0, given T0.  The easiest 
+		way to do this (perhaps not the best) is as follows:  Pick an arbitrary vector V.  
+		Make N0 = unit(T0 x V) 
+		and B0 = unit(T0 x N0), where unit(u) is the normalization of vector u, or u/|u|.  You now have a 
+		starting set of coordinates.
+		</p>
+		<p>
+		Now you simply need a function to calculate a set of coordinate vectors given the previous set.  
+		Given a previous set at P0 and the desired new set at P1, a good way to do this is to let 
+		N1 = unit(B0 x T1) and B1 = unit(T1 x N1).
+		</p>
+		
+	<h2>Application</h2>
+		<p>
+		The coordinates as determined above are useful in two areas of the lab--the first is orienting 
+		the camera as it moves along the roller coaster.  The second is deciding the orientation of 
+		features of the track itself (rails, cross-sections, etc) when you draw them to the screen.  
+		Both of these may be accomplished as a function of P, T, N, and B at any given point.
+		</p>
+
+
+<noscript>
+</body>
+</html>
+
