@@ -30,12 +30,19 @@ struct spline *g_Splines;
 /* total number of splines */
 int g_iNumOfSplines;
 
+float tension_factor = 0.5;
+float basis_catmull[4][4] = { 
+    {-tension_factor, 2 - tension_factor, tension_factor - 2, tension_factor},
+    {2 * tension_factor, tension_factor - 3, 3 - (2 * tension_factor), -tension_factor},
+    {-tension_factor, 0, tension_factor, 0},
+    {0, 1, 0, 0}
+  };
+
 int loadSplines(char *argv) {
   char *cName = (char *)malloc(128 * sizeof(char));
   FILE *fileList;
   FILE *fileSpline;
   int iType, i = 0, j, iLength;
-
 
   /* load the track file */
   fileList = fopen(argv, "r");
@@ -91,13 +98,41 @@ void myInit()
   glShadeModel(GL_SMOOTH); 
 }
 
+void iterateAndDrawSplines() {
+  for (int i = 0; i < g_iNumOfSplines; i++) { //iterate over number of spline files
+    printf("File %d:", i);
+    struct spline *the_spline;
+    the_spline = &g_Splines[i]; // the_spline is a pointer to structure g_splines[i]
+    printf("the_spline->numControlPoints: %d", the_spline->numControlPoints);
+    for (int j = 0; j < the_spline->numControlPoints; j++) {
+      printf("Control point %d is %lf %lf %lf", j, the_spline->points[j].x, the_spline->points[j].y, the_spline->points[j].z);
+    }
+  }
+}
+
 /* Each point's coordinate system is a functionnof the previous one.
 Compute the tangent, normal, and binormal for given position u on the curve */
 void computeLocalCoordinates(float u, point binorm_previous)
 {
   // compute tan_new, norm_new, binorm_new
   // make camera up vector to be n_new
-  return 0;
+}
+
+/* Calculate and return a point on the spline using the Catmull-Rom spline formula */
+struct point catmullRomCalc(float u, struct point p1, struct point p2, struct point p3, struct point p4) 
+{
+  float u_cubed = u * u * u;
+  float u_squared = u * u;
+  struct point control_matrix[4] = {p1, p2, p3, p4};
+  float u_matrix[4] = {u_cubed, u_squared, u, 1};
+
+  struct point new_p;
+
+  float c11 = (basis_catmull[0][0] * control_matrix[0].x) + (basis_catmull[0][1] * control_matrix[1].x) + (basis_catmull[0][2] * control_matrix[2].x) + (basis_catmull[0][1] * control_matrix[3].x)
+  float c12 = (basis_catmull[0][0] * control_matrix[0].y) + (basis_catmull[0][1] * control_matrix[1].y) + (basis_catmull[0][2] * control_matrix[2].y) + (basis_catmull[0][1] * control_matrix[3].y)
+  float c13 = (basis_catmull[0][0] * control_matrix[0].z) + (basis_catmull[0][1] * control_matrix[1].z) + (basis_catmull[0][2] * control_matrix[2].z) + (basis_catmull[0][1] * control_matrix[3].z)
+
+  return new_p;
 }
  
 void reshape(int w, int h) 
@@ -108,7 +143,7 @@ void reshape(int w, int h)
   glLoadIdentity();
 
   // setup projection
-  gluPerspective(45.0, w/h, 0.1, 1000.0);
+  gluPerspective(60.0, w/h, 0.1, 1000.0);
 
   glMatrixMode(GL_MODELVIEW);
   glLoadIdentity();
@@ -132,12 +167,18 @@ void display()
   // update camera
   positionCamera();
 
-  glBegin(GL_TRIANGLES);
+  glBegin(GL_POLYGON);
     glColor3f(1.0, 0.0, 0.0);
     glVertex3f(0.0, 0.0, -0.2);
     glVertex3f(0.0, 1.0, -0.2);
     glVertex3f(1.0, 0.0, -0.2);
   glEnd();
+
+  // Construct Spline 
+  // vary the parameter, "u", by 0.001
+  for (float u = 0; u < 1.0; u += 0.001) {
+    // insert each value of "u" into the Catmull-Rom equation and obtain the point at p(u)
+  }
 
   // double buffer, so swap buffers when done drawing
   glutSwapBuffers();
@@ -146,13 +187,15 @@ void display()
 
 int main (int argc, char ** argv)
 {
-  // if (argc<2)
-  // {  
-  // printf ("usage: %s <trackfile>\n", argv[0]);
-  // exit(0);
-  // }
+  if (argc<2)
+  {  
+  printf ("usage: %s <trackfile>\n", argv[0]);
+  exit(0);
+  }
 
-  // loadSplines(argv[1]);
+  loadSplines(argv[1]);
+
+  iterateAndDrawSplines();
 
   glutInit(&argc, argv);
 
