@@ -178,7 +178,7 @@ void initTextures() {
   // load image data stored at pointer (floor_texture) into currently active texture (texName)
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 256, 256, 0, GL_RGB, GL_UNSIGNED_BYTE, floor_texture);
 
-  // SKY TEXTURE (TEXTURE NUMBER 2)
+  // ------ SKY TEXTURE (TEXTURE NUMBER 2) -------
   skyImage = jpeg_read("galaxy.jpg", NULL);
   if (!floorImage)
   {
@@ -204,49 +204,6 @@ void initTextures() {
 
   // make texture, "texName", the currently active texture on a CUBE_MAP
   glBindTexture(GL_TEXTURE_2D, texName[1]);
-
-  // repeat texture pattern in s and t
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-  // use linear filter for both magnification and minification
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-
-  // load image data stored at pointer (floor_texture) into currently active texture (texName)
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 256, 256, 0, GL_RGB, GL_UNSIGNED_BYTE, sky_texture);
-}
-
-void initSkyTexture() {
-  skyImage = jpeg_read("galaxy.jpg", NULL);
-  if (!floorImage)
-  {
-    printf ("error reading %s.\n", "galaxy.jpg");
-    exit(1);
-  }
-
-  // Load pixels into array
-  int height = skyImage->ny;
-  int width = skyImage->nx;
-  int bpp = skyImage->bpp;
-  for (int i = 0; i < height; i++) {
-    for (int j = 0; j < width; j++) {
-      unsigned char pixel[3] = {
-                      PIC_PIXEL(skyImage, j, i, 0), 
-                      PIC_PIXEL(skyImage, j, i, 1),
-                      PIC_PIXEL(skyImage, j, i, 2)
-                    };
-      sky_texture[i][j][0] = pixel[0];
-      sky_texture[i][j][1] = pixel[1];
-      sky_texture[i][j][2] = pixel[2];
-    }
-  }
-
-  // create placeholder for texture
-  glGenTextures(1, &texNameSky);
-
-  // make texture, "texName", the currently active texture on a CUBE_MAP
-  //glBindTexture(GL_TEXTURE_2D, texNameSky);
 
   // repeat texture pattern in s and t
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -459,29 +416,6 @@ void positionCamera()
   glScalef(g_vLandScale[0], g_vLandScale[1], g_vLandScale[2]);
 }
 
-/* Draw a QUAD for the floor */
-void drawFloor() {
-  // use texture color directly
-  glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); 
-
-  // turn on texture mapping
-  // this disables standard opengl lighting, unless in gl_modulate mode
-  glEnable(GL_TEXTURE_2D);
-
-  glBegin(GL_QUADS);
-    glTexCoord2f(0.0, 1.0);
-      glVertex3f(-2.0, 0.0, -1.0);
-    glTexCoord2f(0.0, 0.0);
-      glVertex3f(-2.0, -2.0, -1.0);
-    glTexCoord2f(1.0, 0.0);
-      glVertex3f(2.0, -2.0, -1.0);
-    glTexCoord2f(1.0, 1.0);
-      glVertex3f(2.0, 0.0, -1.0);
-  glEnd();
-
-  glDisable(GL_TEXTURE_2D);
-}
-
 void face(int a, int b, int c, int d)
 {   
     glBegin(GL_POLYGON);
@@ -522,10 +456,10 @@ void display()
   // update camera
   positionCamera();
 
-  //initSkyTexture();
-
+  // enclose scene in cube that is texture mapped
   cube();
 
+  // draw spline within the cube
   iterateOverControlPoints();
 
   // double buffer, so swap buffers when done drawing
@@ -674,9 +608,8 @@ int main (int argc, char ** argv)
   /* do initialization */
   myInit();
 
+  /* load the floor and sky images into textures */
   initTextures();
-
-  //initSkyTexture();
 
   /* tells glut to use a particular display function */
   glutDisplayFunc(display);
