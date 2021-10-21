@@ -9,7 +9,10 @@
 #include <OpenGL/gl.h>
 #include <OpenGL/glu.h>
 #include <GLUT/glut.h>
-#include "pic.h"
+#include <math.h>
+#include <pic.h>
+
+//raunaqra@usc.edu
 
 /* represents one control point along the spline */
 struct point {
@@ -42,6 +45,37 @@ float camera_up_vector[3] = {0.0, 1.0, 0.0};
 
 int g_iMenuId;
 int menuSelection;
+
+int g_vMousePos[2] = {0, 0};
+int g_iLeftMouseButton = 0;    /* 1 if pressed, 0 if not */
+int g_iRightMouseButton = 0;
+int g_iMiddleMouseButton = 0;
+
+/* state of the world */
+float g_vLandRotate[3] = {0.0, 0.0, 0.0};
+float g_vLandTranslate[3] = {0.0, 0.0, 0.0};
+float g_vLandScale[3] = {1.0, 1.0, 1.0};
+
+typedef enum { ROTATE, TRANSLATE, SCALE } CONTROLSTATE;
+
+/* default states of transformation */
+CONTROLSTATE g_ControlState = ROTATE;
+
+/* texture of floor */
+Pic * floorImage;
+unsigned char floor_texture[256][256][3];
+GLuint texName[2];
+
+/* texture of sky */
+Pic * skyImage;
+unsigned char sky_texture[256][256][3];
+GLuint texNameSky;
+
+/* vertices of cube about the origin */
+GLfloat vertices[8][3] =
+    {{-1.0, -1.0, -1.0}, {1.0, -1.0, -1.0},
+    {1.0, 1.0, -1.0}, {-1.0, 1.0, -1.0}, {-1.0, -1.0, 1.0},
+    {1.0, -1.0, 1.0}, {1.0, 1.0, 1.0}, {-1.0, 1.0, 1.0}};
 
 int loadSplines(char *argv) {
   char *cName = (char *)malloc(128 * sizeof(char));
@@ -103,6 +137,129 @@ void myInit()
   glShadeModel(GL_SMOOTH); 
 }
 
+void initTextures() {
+  floorImage = jpeg_read("floor3.jpg", NULL);
+  if (!floorImage)
+  {
+    printf ("error reading %s.\n", "floor.jpg");
+    exit(1);
+  }
+
+  // Load pixels into array
+  int height = floorImage->ny;
+  int width = floorImage->nx;
+  for (int i = 0; i < height; i++) {
+    for (int j = 0; j < width; j++) {
+      unsigned char pixel[3] = {
+                      PIC_PIXEL(floorImage, j, i, 0), 
+                      PIC_PIXEL(floorImage, j, i, 1),
+                      PIC_PIXEL(floorImage, j, i, 2)
+                    };
+      floor_texture[i][j][0] = pixel[0];
+      floor_texture[i][j][1] = pixel[1];
+      floor_texture[i][j][2] = pixel[2];
+    }
+  }
+
+  // create placeholder for texture
+  glGenTextures(2, texName);
+
+  // make texture, "texName", the currently active texture on a CUBE_MAP
+  glBindTexture(GL_TEXTURE_2D, texName[0]);
+
+  // repeat texture pattern in s and t
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+  // use linear filter for both magnification and minification
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+
+  // load image data stored at pointer (floor_texture) into currently active texture (texName)
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 256, 256, 0, GL_RGB, GL_UNSIGNED_BYTE, floor_texture);
+
+  // SKY TEXTURE (TEXTURE NUMBER 2)
+  skyImage = jpeg_read("galaxy.jpg", NULL);
+  if (!floorImage)
+  {
+    printf ("error reading %s.\n", "galaxy.jpg");
+    exit(1);
+  }
+
+  // Load pixels into array
+  height = skyImage->ny;
+  width = skyImage->nx;
+  for (int i = 0; i < height; i++) {
+    for (int j = 0; j < width; j++) {
+      unsigned char pixel[3] = {
+                      PIC_PIXEL(skyImage, j, i, 0), 
+                      PIC_PIXEL(skyImage, j, i, 1),
+                      PIC_PIXEL(skyImage, j, i, 2)
+                    };
+      sky_texture[i][j][0] = pixel[0];
+      sky_texture[i][j][1] = pixel[1];
+      sky_texture[i][j][2] = pixel[2];
+    }
+  }
+
+  // make texture, "texName", the currently active texture on a CUBE_MAP
+  glBindTexture(GL_TEXTURE_2D, texName[1]);
+
+  // repeat texture pattern in s and t
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+  // use linear filter for both magnification and minification
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+
+  // load image data stored at pointer (floor_texture) into currently active texture (texName)
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 256, 256, 0, GL_RGB, GL_UNSIGNED_BYTE, sky_texture);
+}
+
+void initSkyTexture() {
+  skyImage = jpeg_read("galaxy.jpg", NULL);
+  if (!floorImage)
+  {
+    printf ("error reading %s.\n", "galaxy.jpg");
+    exit(1);
+  }
+
+  // Load pixels into array
+  int height = skyImage->ny;
+  int width = skyImage->nx;
+  int bpp = skyImage->bpp;
+  for (int i = 0; i < height; i++) {
+    for (int j = 0; j < width; j++) {
+      unsigned char pixel[3] = {
+                      PIC_PIXEL(skyImage, j, i, 0), 
+                      PIC_PIXEL(skyImage, j, i, 1),
+                      PIC_PIXEL(skyImage, j, i, 2)
+                    };
+      sky_texture[i][j][0] = pixel[0];
+      sky_texture[i][j][1] = pixel[1];
+      sky_texture[i][j][2] = pixel[2];
+    }
+  }
+
+  // create placeholder for texture
+  glGenTextures(1, &texNameSky);
+
+  // make texture, "texName", the currently active texture on a CUBE_MAP
+  //glBindTexture(GL_TEXTURE_2D, texNameSky);
+
+  // repeat texture pattern in s and t
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+  // use linear filter for both magnification and minification
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+
+  // load image data stored at pointer (floor_texture) into currently active texture (texName)
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 256, 256, 0, GL_RGB, GL_UNSIGNED_BYTE, sky_texture);
+}
+
 /* Calculate and return a point on the spline using the Catmull-Rom spline formula */
 struct point catmullRomCalc(float u, struct point p1, struct point p2, struct point p3, struct point p4) 
 {
@@ -145,19 +302,90 @@ struct point catmullRomCalc(float u, struct point p1, struct point p2, struct po
   return new_p;
 }
 
+double maxValue(double x, double y, double z) {
+  if (x < 0) { x = -1 * x; }
+  if (y < 0) { y = -1 * y; }
+  if (z < 0) { z = -1 * z; }
+  if (x > y) {
+    return (x > z) ? x : z;
+  } else {
+    return (y > z) ? y : z;
+  }
+}
+
 /* Get each point on the spline by varying the parameter, "u", by 0.001 */
 /* Draw a new vertex for each point generated by Catmull-Rom calculation */
 void constructSpline(struct point p1, struct point p2, struct point p3, struct point p4) 
 {
-  glColor3f(1.0, 0.0, 0.0);
-  glBegin(GL_LINES);
+  glColor3f(1.0, 1.0, 0.0);
+  glLineWidth((GLfloat)10.0);
+  glBegin(GL_POINTS);
     for (float u = 0; u < 1.0; u += 0.001) {
       // insert each value of "u" into the Catmull-Rom equation and obtain the point at p(u)
       struct point new_p;
       new_p = catmullRomCalc(u, p1, p2, p3, p4);
-      glVertex3d(new_p.x, new_p.y, new_p.z);
+      double max = maxValue(new_p.x, new_p.y, new_p.z);
+      if (max > 1) {
+        glVertex3d(new_p.x/max, new_p.y/max, new_p.z/max);
+        printf("new_p.x: %lf new_p.y: %lf new_p.z: %lf\n", new_p.x/max, new_p.y/max, new_p.z/max);
+      } else {
+        glVertex3d(new_p.x, new_p.y, new_p.z);      
+      }
     }
   glEnd();
+}
+
+double magnitude(double x, double y, double z)
+{
+  return sqrt((x * x) + (y * y) + (z * z));
+}
+
+struct point computerTangentVector(float u, struct point p1, struct point p2, struct point p3, struct point p4)
+{
+  float three_u_squared = 3 * (u * u);
+  float two_u = 2 * u;
+  struct point control_matrix[4] = {p1, p2, p3, p4};
+  float u_matrix[4] = {three_u_squared, two_u, 1, 0};
+
+  struct point new_p;
+
+  // Calculate values for Catmull Matrix X Control Matrix
+  float c11 = (basis_catmull[0][0] * control_matrix[0].x) + (basis_catmull[0][1] * control_matrix[1].x) + (basis_catmull[0][2] * control_matrix[2].x) + (basis_catmull[0][3] * control_matrix[3].x);
+  float c12 = (basis_catmull[0][0] * control_matrix[0].y) + (basis_catmull[0][1] * control_matrix[1].y) + (basis_catmull[0][2] * control_matrix[2].y) + (basis_catmull[0][3] * control_matrix[3].y);
+  float c13 = (basis_catmull[0][0] * control_matrix[0].z) + (basis_catmull[0][1] * control_matrix[1].z) + (basis_catmull[0][2] * control_matrix[2].z) + (basis_catmull[0][3] * control_matrix[3].z);
+
+  float c21 = (basis_catmull[1][0] * control_matrix[0].x) + (basis_catmull[1][1] * control_matrix[1].x) + (basis_catmull[1][2] * control_matrix[2].x) + (basis_catmull[1][3] * control_matrix[3].x);
+  float c22 = (basis_catmull[1][0] * control_matrix[0].y) + (basis_catmull[1][1] * control_matrix[1].y) + (basis_catmull[1][2] * control_matrix[2].y) + (basis_catmull[1][3] * control_matrix[3].y);
+  float c23 = (basis_catmull[1][0] * control_matrix[0].z) + (basis_catmull[1][1] * control_matrix[1].z) + (basis_catmull[1][2] * control_matrix[2].z) + (basis_catmull[1][3] * control_matrix[3].z);
+
+  float c31 = (basis_catmull[2][0] * control_matrix[0].x) + (basis_catmull[2][1] * control_matrix[1].x) + (basis_catmull[2][2] * control_matrix[2].x) + (basis_catmull[2][3] * control_matrix[3].x);
+  float c32 = (basis_catmull[2][0] * control_matrix[0].y) + (basis_catmull[2][1] * control_matrix[1].y) + (basis_catmull[2][2] * control_matrix[2].y) + (basis_catmull[2][3] * control_matrix[3].y);
+  float c33 = (basis_catmull[2][0] * control_matrix[0].z) + (basis_catmull[2][1] * control_matrix[1].z) + (basis_catmull[2][2] * control_matrix[2].z) + (basis_catmull[2][3] * control_matrix[3].z);
+
+  float c41 = (basis_catmull[3][0] * control_matrix[0].x) + (basis_catmull[3][1] * control_matrix[1].x) + (basis_catmull[3][2] * control_matrix[2].x) + (basis_catmull[3][3] * control_matrix[3].x);
+  float c42 = (basis_catmull[3][0] * control_matrix[0].y) + (basis_catmull[3][1] * control_matrix[1].y) + (basis_catmull[3][2] * control_matrix[2].y) + (basis_catmull[3][3] * control_matrix[3].y);
+  float c43 = (basis_catmull[3][0] * control_matrix[0].z) + (basis_catmull[3][1] * control_matrix[1].z) + (basis_catmull[3][2] * control_matrix[2].z) + (basis_catmull[3][3] * control_matrix[3].z);
+
+  // Calculate point
+  float intermediate_matrix[4][3] = {
+    {c11, c12, c13},
+    {c21, c22, c23},
+    {c31, c32, c33},
+    {c41, c42, c43}
+  };
+
+  new_p.x = (u_matrix[0] * intermediate_matrix[0][0]) + (u_matrix[1] * intermediate_matrix[1][0]) + (u_matrix[2] * intermediate_matrix[2][0]) + (u_matrix[3] * intermediate_matrix[3][0]);
+  new_p.y = (u_matrix[0] * intermediate_matrix[0][1]) + (u_matrix[1] * intermediate_matrix[1][1]) + (u_matrix[2] * intermediate_matrix[2][1]) + (u_matrix[3] * intermediate_matrix[3][1]);
+  new_p.z = (u_matrix[0] * intermediate_matrix[0][2]) + (u_matrix[1] * intermediate_matrix[1][2]) + (u_matrix[2] * intermediate_matrix[2][2]) + (u_matrix[3] * intermediate_matrix[3][2]);
+
+  double vec_mag = magnitude(new_p.x, new_p.y, new_p.z);
+
+  struct point normalized_tangent;
+  normalized_tangent.x = new_p.x/vec_mag;
+  normalized_tangent.y = new_p.y/vec_mag;
+  normalized_tangent.z = new_p.z/vec_mag;
+
+  return normalized_tangent;
 }
 
 /* This function is needed to position the camera normal and tangent correctly */
@@ -178,12 +406,23 @@ void iterateOverControlPoints() {
     the_spline = &g_Splines[i]; // the_spline is a pointer to structure g_splines[i]
     printf("the_spline->numControlPoints: %d\n", the_spline->numControlPoints);
 
-    for (int j = 0; j < the_spline->numControlPoints; j++) {
+    for (int j = 0; j < the_spline->numControlPoints - 3; j++) {
       printf("Control point %d is %lf %lf %lf\n", j, the_spline->points[j].x, the_spline->points[j].y, the_spline->points[j].z);
+      struct point p1;
+      struct point p2;
+      struct point p3;
+      struct point p4;
+ 
+      p1 = the_spline->points[j];
+      p2 = the_spline->points[j+1];
+      p3 = the_spline->points[j+2];
+      p4 = the_spline->points[j+3];
+      constructSpline(p1, p2, p3, p4);
     }
   }
 }
  
+ /* Eye coordinates are transformed to Clip Coordinates */
 void reshape(int w, int h) 
 {
   glViewport(0, 0, w, h);
@@ -192,7 +431,7 @@ void reshape(int w, int h)
   glLoadIdentity();
 
   // setup projection
-  gluPerspective(60.0, w/h, 0.1, 1000.0);
+  gluPerspective(45.0, w/h, 0.01, 10);
 
   glMatrixMode(GL_MODELVIEW);
   glLoadIdentity();
@@ -205,7 +444,74 @@ void positionCamera()
 
   // place the camera (viewing transformation) 
   // parameters: eyex, eyey, eyez, focusx, focusy, focusz, upx, upy, upz 
-  gluLookAt(0.0, 0.0, 0.0, 0.0, 0.0, -10.0, 0.0, 1.0, 0.0);
+  gluLookAt(0.0, 0.0, 3.0, 0.0, 0.0, -10.0, 0.0, 1.0, 0.0);
+
+  /* Modeling transformations */
+  // translation
+  glTranslatef(g_vLandTranslate[0], g_vLandTranslate[1], g_vLandTranslate[2]);
+
+  // rotation
+  glRotatef(g_vLandRotate[0], 1.0, 0.0, 0.0);
+  glRotatef(g_vLandRotate[1], 0.0, 1.0, 0.0);
+  glRotatef(g_vLandRotate[2], 0.0, 0.0, 1.0);
+
+  //scaling
+  glScalef(g_vLandScale[0], g_vLandScale[1], g_vLandScale[2]);
+}
+
+/* Draw a QUAD for the floor */
+void drawFloor() {
+  // use texture color directly
+  glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); 
+
+  // turn on texture mapping
+  // this disables standard opengl lighting, unless in gl_modulate mode
+  glEnable(GL_TEXTURE_2D);
+
+  glBegin(GL_QUADS);
+    glTexCoord2f(0.0, 1.0);
+      glVertex3f(-2.0, 0.0, -1.0);
+    glTexCoord2f(0.0, 0.0);
+      glVertex3f(-2.0, -2.0, -1.0);
+    glTexCoord2f(1.0, 0.0);
+      glVertex3f(2.0, -2.0, -1.0);
+    glTexCoord2f(1.0, 1.0);
+      glVertex3f(2.0, 0.0, -1.0);
+  glEnd();
+
+  glDisable(GL_TEXTURE_2D);
+}
+
+void face(int a, int b, int c, int d)
+{   
+    glBegin(GL_POLYGON);
+      glTexCoord2f(0.0, 1.0);
+        glVertex3fv(vertices[a]);
+      glTexCoord2f(0.0, 0.0);
+        glVertex3fv(vertices[b]);
+      glTexCoord2f(1.0, 0.0);
+        glVertex3fv(vertices[c]);
+      glTexCoord2f(1.0, 1.0);
+        glVertex3fv(vertices[d]);
+    glEnd(); 
+}
+
+void cube()
+{
+  // use texture color directly
+  glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE); 
+
+  glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, texName[1]);
+      face(0,3,2,1);
+      face(2,3,7,6);
+      face(0,4,7,3);
+      face(1,2,6,5);
+      face(4,5,6,7);
+
+    glBindTexture(GL_TEXTURE_2D, texName[0]);
+      face(0,1,5,4);
+  glDisable(GL_TEXTURE_2D);
 }
 
 void display()
@@ -216,14 +522,11 @@ void display()
   // update camera
   positionCamera();
 
-  iterateOverControlPoints();
+  //initSkyTexture();
 
-  glBegin(GL_POLYGON);
-    glColor3f(1.0, 0.0, 0.0);
-    glVertex3f(0.0, 0.0, -0.2);
-    glVertex3f(0.0, 1.0, -0.2);
-    glVertex3f(1.0, 0.0, -0.2);
-  glEnd();
+  cube();
+
+  iterateOverControlPoints();
 
   // double buffer, so swap buffers when done drawing
   glutSwapBuffers();
@@ -237,6 +540,111 @@ void menufunc(int value)
       exit(0);
       break;
   }
+}
+
+void doIdle()
+{
+  /* Capture a screenshot of the window */
+  // char fileName[2048];
+
+  /* create filenames up to 1000 filenames */
+  // sprintf(fileName, "anim.%04d.jpg", screenshotNumber);
+  // saveScreenshot(fileName);
+
+  // screenshotNumber++;
+
+  /* make the screen update */
+  glutPostRedisplay();
+}
+
+/* converts mouse drags into information about 
+rotation/translation/scaling */
+void mousedrag(int x, int y)
+{
+  int vMouseDelta[2] = {x-g_vMousePos[0], y-g_vMousePos[1]};
+  
+  switch (g_ControlState)
+  {
+    case TRANSLATE:  
+      if (g_iLeftMouseButton)
+      {
+        g_vLandTranslate[0] += vMouseDelta[0]*0.01;
+        g_vLandTranslate[1] += vMouseDelta[1]*0.01;
+      }
+      if (g_iMiddleMouseButton)
+      {
+        g_vLandTranslate[2] += vMouseDelta[1]*0.01;
+      }
+      break;
+    case ROTATE:
+      if (g_iLeftMouseButton)
+      {
+        g_vLandRotate[0] += vMouseDelta[1];
+        g_vLandRotate[1] -= vMouseDelta[0];
+      }
+      if (g_iMiddleMouseButton)
+      {
+        g_vLandRotate[2] += vMouseDelta[1];
+      }
+      break;
+    case SCALE:
+      if (g_iLeftMouseButton)
+      {
+        g_vLandScale[0] *= 1.0+vMouseDelta[0]*0.01;
+        g_vLandScale[1] *= 1.0-vMouseDelta[1]*0.01;
+      }
+      if (g_iMiddleMouseButton)
+      {
+        g_vLandScale[2] *= 1.0-vMouseDelta[1]*0.01;
+      }
+      break;
+  }
+  g_vMousePos[0] = x;
+  g_vMousePos[1] = y;
+}
+
+void mouseidle(int x, int y)
+{
+  g_vMousePos[0] = x;
+  g_vMousePos[1] = y;
+}
+
+/* Control the transformations and color states with keyboard input */
+void keyboardButton(unsigned char key, int x, int y) 
+{
+  switch (key) {
+    case 't':
+      g_ControlState = TRANSLATE;
+      break;
+    case 's':
+      g_ControlState = SCALE;
+      break;
+    case 'r':
+      g_ControlState = ROTATE;
+      break;
+  } 
+
+  g_vMousePos[0] = x;
+  g_vMousePos[1] = y;
+}
+
+void mousebutton(int button, int state, int x, int y)
+{
+  switch (button)
+  {
+    case GLUT_LEFT_BUTTON:
+      g_iLeftMouseButton = (state==GLUT_DOWN);
+      break;
+    case GLUT_MIDDLE_BUTTON:
+      g_iMiddleMouseButton = (state==GLUT_DOWN);
+      break;
+    case GLUT_RIGHT_BUTTON:
+      g_iRightMouseButton = (state==GLUT_DOWN);
+      break;
+  }
+
+  g_vMousePos[0] = x;
+  g_vMousePos[1] = y;
 }
 
 int main (int argc, char ** argv)
@@ -266,6 +674,10 @@ int main (int argc, char ** argv)
   /* do initialization */
   myInit();
 
+  initTextures();
+
+  //initSkyTexture();
+
   /* tells glut to use a particular display function */
   glutDisplayFunc(display);
 
@@ -275,8 +687,23 @@ int main (int argc, char ** argv)
   glutAddMenuEntry("Quit", 0);
   glutAttachMenu(GLUT_RIGHT_BUTTON);
 
+  /* replace with any animate code */
+  glutIdleFunc(doIdle);
+
   /* callback for reshaping the window */
   glutReshapeFunc(reshape);
+
+  /* callback for mouse drags */
+  glutMotionFunc(mousedrag);
+
+  /* callback for idle mouse movement */
+  glutPassiveMotionFunc(mouseidle);
+
+  /* callback for mouse button changes */
+  glutMouseFunc(mousebutton);
+
+  /* callback to bind the keyboard for translation, scaling */
+  glutKeyboardFunc(keyboardButton);
 
   glutMainLoop();
 
