@@ -73,15 +73,31 @@ Pic * skyImage;
 unsigned char sky_texture[256][256][3];
 GLuint texNameSky;
 
+/* globals for keeping track of the u parameter, previous point, and previous binormal */
+/* Used for moving the camera and drawing the spline */
 float global_u = 0.0;
 int control_point_index = 0;
-struct point prev_binorm;
+bool isFirstPoint = true;
+bool shouldCalcInitialNormal = true;
+int crossBarCounter = 4;
+
+/* globals to keep track of local coordinate system */
+struct point current_tangent;
+struct point current_norm;
+struct point current_binorm;
+
+struct point current_point;
+struct point prev_point;
+
+struct point previous_tangent;
+struct point previous_norm;
+struct point previous_binorm;
 
 /* vertices of cube about the origin */
 GLfloat vertices[8][3] =
-    {{-1.0, -1.0, -1.0}, {1.0, -1.0, -1.0},
-    {1.0, 1.0, -1.0}, {-1.0, 1.0, -1.0}, {-1.0, -1.0, 1.0},
-    {1.0, -1.0, 1.0}, {1.0, 1.0, 1.0}, {-1.0, 1.0, 1.0}};
+    {{-2.0, -2.0, -2.0}, {2.0, -2.0, -2.0},
+    {2.0, 2.0, -2.0}, {-2.0, 2.0, -2.0}, {-2.0, -2.0, 2.0},
+    {2.0, -2.0, 2.0}, {2.0, 2.0, 2.0}, {-2.0, 2.0, 2.0}};
 
 int loadSplines(char *argv) {
   char *cName = (char *)malloc(128 * sizeof(char));
@@ -329,41 +345,219 @@ struct point computeTangentVector(float u, struct point p1, struct point p2, str
   return normalized_tangent;
 }
 
+/* assume binormal x and y = 1 and solve for binormal.z so that the dot product is 0 */
+float solveForFirstBinormal(struct point tangent) {
+  return (-(tangent.y + tangent.z))/tangent.x;
+}
+
 /* Need to Compute T, N, and B */
-struct point moveCamera(float u, struct point p1, struct point p2, struct point p3, struct point p4, struct point binorm_previous, struct point current_point) {
-  struct point norm;
-  struct point binormal;
-
+void moveCamera(float u, struct point p1, struct point p2, struct point p3, struct point p4) {
   // compute tangent vector
-  struct point tangent = computeTangentVector(u, p1, p2, p3, p4);
-  printf("Tangent: [%f %f %f]\n", tangent.x, tangent.y, tangent.z);
+  current_tangent = computeTangentVector(u, p1, p2, p3, p4);
+  //printf("Tangent: [%f %f %f]\n", current_tangent.x, current_tangent.y, current_tangent.z);
 
-  if (u == 0.0) { // if we are at the first point then pick arbitrary Vector
-    binorm_previous.x = tangent.y;
-    binorm_previous.y = tangent.x;
-    binorm_previous.z = tangent.z;
+  // if we are at the first point then pick arbitrary Vector
+  if (shouldCalcInitialNormal == true) { 
+    shouldCalcInitialNormal = false;
+    current_binorm.x = 0.0;
+    current_binorm.y = 1.0;
+    current_binorm.z = 0.0;
   }
-  // Normal = Binorm_previous x T
-  norm.x = (binorm_previous.y * tangent.z) - (binorm_previous.z * tangent.y);
-  norm.y = (binorm_previous.z * tangent.x) - (binorm_previous.x * tangent.z);
-  norm.z = (binorm_previous.x * tangent.y) - (binorm_previous.y * tangent.x);
-  printf("Normal: [%f %f %f]\n", norm.x, norm.y, norm.z);
 
+  // Normal = Binorm_previous x T
+  current_norm.x = (current_binorm.y * current_tangent.z) - (current_binorm.z * current_tangent.y);
+  current_norm.y = (current_binorm.z * current_tangent.x) - (current_binorm.x * current_tangent.z);
+  current_norm.z = (current_binorm.x * current_tangent.y) - (current_binorm.y * current_tangent.x);
+
+  // normalize
+  double norm_mag = magnitude(current_norm.x, current_norm.y, current_norm.z); //normalize
+  current_norm.x = current_norm.x/norm_mag;
+  current_norm.y = current_norm.y/norm_mag;
+  current_norm.z = current_norm.z/norm_mag;
+  //printf("Normal: [%f %f %f]\n", current_norm.x, current_norm.y, current_norm.z);
 
   // Binormal = T x N
-  binormal.x = (tangent.y * norm.z) - (tangent.z * norm.y);
-  binormal.y = (tangent.z * norm.x) - (tangent.x * norm.z);
-  binormal.z = (tangent.x * norm.y) - (tangent.y * norm.x);
-  printf("binorm: [%f %f %f]\n", binormal.x, binormal.y, binormal.z);
+  current_binorm.x = (current_tangent.y * current_norm.z) - (current_tangent.z * current_norm.y);
+  current_binorm.y = (current_tangent.z * current_norm.x) - (current_tangent.x * current_norm.z);
+  current_binorm.z = (current_tangent.x * current_norm.y) - (current_tangent.y * current_norm.x);
 
-  glMatrixMode(GL_MODELVIEW);
-  glLoadIdentity();
+  // normalize
+  double binormal_mag = magnitude(current_binorm.x, current_binorm.y, current_binorm.z); //normalize
+  current_binorm.x = current_binorm.x/binormal_mag;
+  current_binorm.y = current_binorm.y/binormal_mag;
+  current_binorm.z = current_binorm.z/binormal_mag;
+  //printf("binorm: [%f %f %f]\n", current_binorm.x, current_binorm.y, current_binorm.z);
 
   // update the camera (viewing transformation) 
   // parameters: eyex, eyey, eyez, focusx, focusy, focusz, upx, upy, upz 
-  gluLookAt(current_point.x, current_point.y, current_point.z, tangent.x, tangent.y, tangent.z, norm.x, norm.y, norm.z);
+  printf("current point: %f %f %f\n", current_point.x, current_point.y, current_point.z);
+  gluLookAt(current_point.x + (0.1*current_norm.x) - (0.1 * current_binorm.x), current_point.y + (0.1*current_norm.y) - (0.1 * current_binorm.y), current_point.z + (current_norm.z * 0.1)  - (0.1 * current_binorm.z), 
+            current_point.x + current_tangent.x, current_point.y + current_tangent.y, current_point.z + current_tangent.z, 
+            current_norm.x, current_norm.y, current_norm.z);
+//  gluLookAt(current_point.x + (0.1*current_norm.x), current_point.y + (0.1*current_norm.y), current_point.z + (0.1*current_norm.z), 
+//             0, 0, 1.0, 
+//             0, 1.0, 0);
+}
 
-  return binormal;
+void calcLocalCoordinates(float u, struct point p1, struct point p2, struct point p3, struct point p4) {
+  // compute tangent vector
+  previous_tangent = computeTangentVector(u, p1, p2, p3, p4);
+  //printf("Tangent: [%f %f %f]\n", current_tangent.x, current_tangent.y, current_tangent.z);
+
+  // if we are at the first point then pick arbitrary Vector
+  if (shouldCalcInitialNormal == true) { 
+    //shouldCalcInitialNormal = false;
+    previous_binorm.x = 0.0;
+    previous_binorm.y = 1.0;
+    previous_binorm.z = 0.0;
+  }
+
+  // Normal = Binorm_previous x T
+  previous_norm.x = (previous_binorm.y * previous_tangent.z) - (previous_binorm.z * previous_tangent.y);
+  previous_norm.y = (previous_binorm.z * previous_tangent.x) - (previous_binorm.x * previous_tangent.z);
+  previous_norm.z = (previous_binorm.x * previous_tangent.y) - (previous_binorm.y * previous_tangent.x);
+
+  // normalize
+  double norm_mag = magnitude(previous_norm.x, previous_norm.y, previous_norm.z); //normalize
+  previous_norm.x = previous_norm.x/norm_mag;
+  previous_norm.y = previous_norm.y/norm_mag;
+  previous_norm.z = previous_norm.z/norm_mag;
+  //printf("Normal: [%f %f %f]\n", current_norm.x, current_norm.y, current_norm.z);
+
+  // Binormal = T x N
+  previous_binorm.x = (previous_tangent.y * previous_norm.z) - (previous_tangent.z * previous_norm.y);
+  previous_binorm.y = (previous_tangent.z * previous_norm.x) - (previous_tangent.x * previous_norm.z);
+  previous_binorm.z = (previous_tangent.x * previous_norm.y) - (previous_tangent.y * previous_norm.x);
+
+  // normalize
+  double binormal_mag = magnitude(previous_binorm.x, previous_binorm.y, previous_binorm.z); //normalize
+  previous_binorm.x = previous_binorm.x/binormal_mag;
+  previous_binorm.y = previous_binorm.y/binormal_mag;
+  previous_binorm.z = previous_binorm.z/binormal_mag;
+}
+
+void drawQuadPoints(float u, struct point p1, struct point p2, struct point p3 , struct point p4, struct point the_point, struct point previous_point)
+{
+  current_tangent = computeTangentVector(u, p1, p2, p3, p4);
+  //printf("Tangent: [%f %f %f]\n", current_tangent.x, current_tangent.y, current_tangent.z);
+
+  // if we are at the first point then pick arbitrary Vector
+  if (shouldCalcInitialNormal == true) { 
+    shouldCalcInitialNormal = false;
+    current_binorm.x = 0.0;
+    current_binorm.y = 1.0;
+    current_binorm.z = 0.0;
+  }
+
+  // Normal = Binorm_previous x T
+  current_norm.x = (current_binorm.y * current_tangent.z) - (current_binorm.z * current_tangent.y);
+  current_norm.y = (current_binorm.z * current_tangent.x) - (current_binorm.x * current_tangent.z);
+  current_norm.z = (current_binorm.x * current_tangent.y) - (current_binorm.y * current_tangent.x);
+
+  // normalize
+  double norm_mag = magnitude(current_norm.x, current_norm.y, current_norm.z); //normalize
+  current_norm.x = current_norm.x/norm_mag;
+  current_norm.y = current_norm.y/norm_mag;
+  current_norm.z = current_norm.z/norm_mag;
+  //printf("Normal: [%f %f %f]\n", current_norm.x, current_norm.y, current_norm.z);
+
+  // Binormal = T x N
+  current_binorm.x = (current_tangent.y * current_norm.z) - (current_tangent.z * current_norm.y);
+  current_binorm.y = (current_tangent.z * current_norm.x) - (current_tangent.x * current_norm.z);
+  current_binorm.z = (current_tangent.x * current_norm.y) - (current_tangent.y * current_norm.x);
+
+  // normalize
+  double binormal_mag = magnitude(current_binorm.x, current_binorm.y, current_binorm.z); //normalize
+  current_binorm.x = current_binorm.x/binormal_mag;
+  current_binorm.y = current_binorm.y/binormal_mag;
+  current_binorm.z = current_binorm.z/binormal_mag;
+  //printf("binorm: [%f %f %f]\n", current_binorm.x, current_binorm.y, current_binorm.z);
+
+  float bottomRight_previous[3] = {previous_point.x + 0.005*(-previous_norm.x + previous_binorm.x), previous_point.y + 0.005*(-previous_norm.y + previous_binorm.y), previous_point.z + 0.005*(-previous_norm.z + previous_binorm.z)};
+  float topRight_previous[3] = {previous_point.x + 0.005*(previous_norm.x + previous_binorm.x), previous_point.y + 0.005*(previous_norm.y + previous_binorm.y), previous_point.z + 0.005*(previous_norm.z + previous_binorm.z)};
+  float topLeft_previous[3] = {previous_point.x + 0.005*(previous_norm.x - previous_binorm.x), previous_point.y + 0.005*(previous_norm.y - previous_binorm.y), previous_point.z + 0.005*(previous_norm.z - previous_binorm.z)};
+  float bottomLeft_previous[3] = {previous_point.x + 0.005*(-previous_norm.x - previous_binorm.x), previous_point.y + 0.005*(-previous_norm.y - previous_binorm.y), previous_point.z + 0.005*(-previous_norm.z - previous_binorm.z)};
+
+  float bottomRight_current[3] = {the_point.x + 0.005*(-current_norm.x + current_binorm.x), the_point.y + 0.005*(-current_norm.y + current_binorm.y), the_point.z + 0.005*(-current_norm.z + current_binorm.z)};
+  float topRight_current[3] = {the_point.x + 0.005*(current_norm.x + current_binorm.x), the_point.y + 0.005*(current_norm.y + current_binorm.y), the_point.z + 0.005*(current_norm.z + current_binorm.z)};
+  float topLeft_current[3] = {the_point.x + 0.005*(current_norm.x - current_binorm.x), the_point.y + 0.005*(current_norm.y - current_binorm.y), the_point.z + 0.005*(current_norm.z - current_binorm.z)};
+  float bottomLeft_current[3] = {the_point.x + 0.005*(-current_norm.x - current_binorm.x), the_point.y + 0.005*(-current_norm.y - current_binorm.y), the_point.z + 0.005*(-current_norm.z - current_binorm.z)};
+  glBegin(GL_QUADS);
+
+  // left
+  glVertex3f(topLeft_previous[0], topLeft_previous[1], topLeft_previous[2]); // v0
+  glVertex3f(bottomLeft_previous[0], bottomLeft_previous[1], bottomLeft_previous[2]); //v1
+  glVertex3f(bottomLeft_current[0], bottomLeft_current[1], bottomLeft_current[2]); //v2
+  glVertex3f(topLeft_current[0], topLeft_current[1], topLeft_current[2]); //v3
+
+  // right
+  glVertex3f(topRight_previous[0], topRight_previous[1], topRight_previous[2]); // v0
+  glVertex3f(bottomRight_previous[0], bottomRight_previous[1], bottomRight_previous[2]); //v1
+  glVertex3f(topRight_current[0], topRight_current[1], topRight_current[2]); //v2
+  glVertex3f(bottomRight_current[0], bottomRight_current[1], bottomRight_current[2]); //v3
+
+  // top
+  glVertex3f(topRight_previous[0], topRight_previous[1], topRight_previous[2]); // v0
+  glVertex3f(topLeft_previous[0], topLeft_previous[1], topLeft_previous[2]); //v1
+  glVertex3f(topLeft_current[0], topLeft_current[1], topLeft_current[2]); //v2
+  glVertex3f(topRight_current[0], topRight_current[1], topRight_current[2]); //v3
+
+  // bottom
+  glVertex3f(bottomRight_previous[0], bottomRight_previous[1], bottomRight_previous[2]); // v0
+  glVertex3f(bottomLeft_previous[0], bottomLeft_previous[1], bottomLeft_previous[2]); //v1
+  glVertex3f(bottomRight_current[0], bottomRight_current[1], bottomRight_current[2]); //v2
+  glVertex3f(bottomLeft_current[0], bottomLeft_current[1], bottomLeft_current[2]); //v3
+
+  glEnd();
+
+  // PARALLEL LINE COORDINATES
+  float parallel_bottomRight_current[3] = {(the_point.x - (0.1 * current_binorm.x)) + 0.005*(-current_norm.x + current_binorm.x), (the_point.y - (0.1 * current_binorm.y)) + 0.005*(-current_norm.y + current_binorm.y), (the_point.z - (0.1 * current_binorm.z)) + 0.005*(-current_norm.z + current_binorm.z)};
+  float parallel_topRight_current[3] = {(the_point.x -  (0.1 * current_binorm.x)) + 0.005*(current_norm.x + current_binorm.x), (the_point.y - (0.1 * current_binorm.y)) + 0.005*(current_norm.y + current_binorm.y), (the_point.z - (0.1 * current_binorm.z)) + 0.005*(current_norm.z + current_binorm.z)};
+  float parallel_topLeft_current[3] = {(the_point.x - (0.1 * current_binorm.x)) + 0.005*(current_norm.x - current_binorm.x), (the_point.y - (0.1 * current_binorm.y)) + 0.005*(current_norm.y - current_binorm.y), (the_point.z - (0.1 * current_binorm.z)) + 0.005*(current_norm.z - current_binorm.z)};
+  float parallel_bottomLeft_current[3] = {(the_point.x - (0.1 * current_binorm.x)) + 0.005*(-current_norm.x - current_binorm.x), (the_point.y - (0.1 * current_binorm.y)) + 0.005*(-current_norm.y - current_binorm.y), (the_point.z - (0.1 * current_binorm.z)) + 0.005*(-current_norm.z - current_binorm.z)};
+
+  float parallel_bottomRight_previous[3] = {(previous_point.x - (0.1 * previous_binorm.x)) + 0.005*(-previous_norm.x + previous_binorm.x), (previous_point.y - (0.1 * previous_binorm.y)) + 0.005*(-previous_norm.y + previous_binorm.y), (previous_point.z - (0.1 * previous_binorm.z)) + 0.005*(-previous_norm.z + previous_binorm.z)};
+  float parallel_topRight_previous[3] = {(previous_point.x -  (0.1 * previous_binorm.x)) + 0.005*(previous_norm.x + previous_binorm.x), (previous_point.y - (0.1 * previous_binorm.y)) + 0.005*(previous_norm.y + previous_binorm.y), (previous_point.z - (0.1 * previous_binorm.z)) + 0.005*(previous_norm.z + previous_binorm.z)};
+  float parallel_topLeft_previous[3] = {(previous_point.x - (0.1 * previous_binorm.x)) + 0.005*(previous_norm.x - previous_binorm.x), (previous_point.y - (0.1 * previous_binorm.y)) + 0.005*(previous_norm.y - previous_binorm.y), (previous_point.z - (0.1 * previous_binorm.z)) + 0.005*(previous_norm.z - previous_binorm.z)};
+  float parallel_bottomLeft_previous[3] = {(previous_point.x - (0.1 * previous_binorm.x)) + 0.005*(-previous_norm.x - previous_binorm.x), (previous_point.y - (0.1 * previous_binorm.y)) + 0.005*(-previous_norm.y - previous_binorm.y), (previous_point.z - (0.1 * previous_binorm.z)) + 0.005*(-previous_norm.z - previous_binorm.z)};
+
+  // Draw Parallel spline
+  glBegin(GL_QUADS);
+
+  // left
+  glVertex3f(parallel_topLeft_previous[0], parallel_topLeft_previous[1], parallel_topLeft_previous[2]); // v0
+  glVertex3f(parallel_bottomLeft_previous[0], parallel_bottomLeft_previous[1], parallel_bottomLeft_previous[2]); //v1
+  glVertex3f(parallel_topLeft_current[0], parallel_topLeft_current[1], parallel_topLeft_current[2]); //v2
+  glVertex3f(parallel_bottomLeft_current[0], parallel_bottomLeft_current[1], parallel_bottomLeft_current[2]); //v3
+
+  // right
+  glVertex3f(parallel_topRight_previous[0], parallel_topRight_previous[1], parallel_topRight_previous[2]); // v0
+  glVertex3f(parallel_bottomRight_previous[0], parallel_bottomRight_previous[1], parallel_bottomRight_previous[2]); //v1
+  glVertex3f(parallel_topRight_current[0], parallel_topRight_current[1], parallel_topRight_current[2]); //v2
+  glVertex3f(parallel_bottomRight_current[0], parallel_bottomRight_current[1], parallel_bottomRight_current[2]); //v3
+
+  // top
+  glVertex3f(parallel_topLeft_previous[0], parallel_topLeft_previous[1], parallel_topLeft_previous[2]); // v0
+  glVertex3f(parallel_topRight_previous[0], parallel_topRight_previous[1], parallel_topRight_previous[2]); //v1
+  glVertex3f(parallel_topLeft_current[0], parallel_topLeft_current[1], parallel_topLeft_current[2]); //v2
+  glVertex3f(parallel_topRight_current[0], parallel_topRight_current[1], parallel_topRight_current[2]); //v3
+
+  // bottom
+  glVertex3f(parallel_bottomRight_previous[0], parallel_bottomRight_previous[1], parallel_bottomRight_previous[2]); // v0
+  glVertex3f(parallel_bottomLeft_previous[0], parallel_bottomLeft_previous[1], parallel_bottomLeft_previous[2]); //v1
+  glVertex3f(parallel_bottomRight_current[0], parallel_bottomRight_current[1], parallel_bottomRight_current[2]); //v2
+  glVertex3f(parallel_bottomLeft_current[0], parallel_bottomLeft_current[1], parallel_bottomLeft_current[2]); //v3
+
+  glEnd();
+
+  crossBarCounter += 1;
+  // cross bar
+  if (crossBarCounter == 5) {
+    // glBegin();
+
+    // glEnd();
+    crossBarCounter = 0;
+  }
 }
 
 /* Get each point on the spline by varying the parameter, "u", by 0.001 */
@@ -371,40 +565,54 @@ struct point moveCamera(float u, struct point p1, struct point p2, struct point 
 /* Then, update the camera position */
 void constructSpline(struct point p1, struct point p2, struct point p3, struct point p4) 
 {
-  struct point binormal; // update binormal on each iteration
-  binormal.x = 0;
-  binormal.y = 0;
-  binormal.z = 0;
-
+  float prev_u = 0.0;
   glColor3f(1.0, 1.0, 0.0);
-  glLineWidth((GLfloat)10.0);
-  glBegin(GL_POINTS);
+  glLineWidth((GLfloat)5.0);
 
-    for (float u = 0; u < 1.0; u += 0.01) {
-      // insert each value of "u" into the Catmull-Rom equation and obtain the point at p(u)
-      struct point new_p;
-      new_p = catmullRomCalc(u, p1, p2, p3, p4);
-      double max = maxValue(new_p.x, new_p.y, new_p.z);
-      if (max > 1) {
-        new_p.x = new_p.x/max;
-        new_p.y = new_p.y/max;
-        new_p.z = new_p.z/max;
-      } 
-      //printf("new_p.x: %lf new_p.y: %lf new_p.z: %lf\n", new_p.x, new_p.y, new_p.z);
-      glVertex3d(new_p.x, new_p.y, new_p.z);
-    }
+  // calc initial point
+  prev_point = catmullRomCalc(0.0, p1, p2, p3, p4);
+  double max = maxValue(prev_point.x, prev_point.y, prev_point.z);
+  if (max > 1) {
+    prev_point.x = prev_point.x/max;
+    prev_point.y = prev_point.y/max;
+    prev_point.z = prev_point.z/max;
+  } 
 
-  glEnd();
+  for (float u = 0.01; u < 1.0; u += 0.01) {
+    // insert each value of "u" into the Catmull-Rom equation and obtain the point at p(u)
+    struct point new_p;
+    new_p = catmullRomCalc(u, p1, p2, p3, p4);
+    double max = maxValue(new_p.x, new_p.y, new_p.z);
+    if (max > 1) {
+      new_p.x = new_p.x/max;
+      new_p.y = new_p.y/max;
+      new_p.z = new_p.z/max;
+    } 
+    //printf("new_p.x: %lf new_p.y: %lf new_p.z: %lf\n", new_p.x, new_p.y, new_p.z);
+
+    drawQuadPoints(prev_u, p1, p2, p3, p4, new_p, prev_point);
+    //drawQuadPoints(u, p1, p2, p3, p4, new_p);
+
+    // keep track of previous point in order to draw smooth lines
+    // glBegin(GL_LINES);
+    //   glVertex3d(prev_point.x, prev_point.y, prev_point.z);
+    //   glVertex3d(new_p.x, new_p.y, new_p.z);
+    // glEnd();
+
+    // update globals for previous point
+    prev_point = new_p;
+    previous_norm = current_norm;
+    previous_binorm = current_binorm;
+    previous_tangent = current_tangent;
+  }
 }
 
 /* Iterate over control points in the spline files */
 /* Return 4 control points in an array */
 void iterateOverControlPoints() {
   for (int i = 0; i < g_iNumOfSplines; i++) { //iterate over number of spline files
-    //printf("File %d:\n", i);
     struct spline *the_spline;
     the_spline = &g_Splines[i]; // the_spline is a pointer to structure g_splines[i]
-    //printf("the_spline->numControlPoints: %d\n", the_spline->numControlPoints);
 
     for (int j = 0; j < the_spline->numControlPoints - 3; j++) {
       //printf("Control point %d is %lf %lf %lf\n", j, the_spline->points[j].x, the_spline->points[j].y, the_spline->points[j].z);
@@ -557,26 +765,34 @@ void display()
   the_spline = &g_Splines[0];
 
   // reset u and get the next 4 control points
-  printf("global u: %f\n", global_u);
   if (global_u >= 1.0) {
     global_u = 0.0;
     control_point_index += 1;
   }
-  struct point c1 = the_spline->points[control_point_index];
-  struct point c2 = the_spline->points[control_point_index+1];
-  struct point c3 = the_spline->points[control_point_index+2];
-  struct point c4 = the_spline->points[control_point_index+3];
+  if (control_point_index+3 < the_spline->numControlPoints) {
+    struct point c1 = the_spline->points[control_point_index];
+    struct point c2 = the_spline->points[control_point_index+1];
+    struct point c3 = the_spline->points[control_point_index+2];
+    struct point c4 = the_spline->points[control_point_index+3];
 
-  struct point new_p;
-  new_p = catmullRomCalc(global_u, c1, c2, c3, c4);
-  double max = maxValue(new_p.x, new_p.y, new_p.z);
-  if (max > 1) {
-    new_p.x = new_p.x/max;
-    new_p.y = new_p.y/max;
-    new_p.z = new_p.z/max;
-  } 
+    current_point = catmullRomCalc(global_u, c1, c2, c3, c4);
+    double max = maxValue(current_point.x, current_point.y, current_point.z);
+    if (max > 1) {
+      current_point.x = current_point.x/max;
+      current_point.y = current_point.y/max;
+      current_point.z = current_point.z/max;
+    } 
 
-  prev_binorm = moveCamera(global_u, c1, c2, c3, c4, prev_binorm, new_p);
+    //printf("global_u: %f\n", global_u);
+    //printf("Move camera points: [%f %f %f]\n", current_point.x, current_point.y, current_point.z);
+    moveCamera(global_u, c1, c2, c3, c4);
+    
+  } else {
+    // reset
+    shouldCalcInitialNormal = true;
+    control_point_index = 0;
+    global_u = 0.0;
+  }
 
   // enclose scene in cube that is texture mapped
   cube();
@@ -610,7 +826,7 @@ void doIdle()
   // screenshotNumber++;
 
   /* make the screen update */
-  if (global_u <= 1.0) {
+  if (global_u < 1.0) {
     global_u = global_u + 0.01;
   }
   glutPostRedisplay();
